@@ -13,12 +13,16 @@ def build_input():
     x = keras.layers.Input(shape=(192, 256, 3))
     return x
 
-def build_conv(x, nf, size, stride=1):
+def build_conv(x, nf, size, stride=1, activation='relu'):
     x = keras.layers.Conv2D(nf,
                             (size, size),
                             strides=(stride, stride),
                             kernel_initializer=keras.initializers.RandomNormal(0, 0.02),
                             padding='same')(x)
+    if activation == 'leakyrelu':
+        x = keras.layers.advanced_activations.LeakyReLU(alpha=0.2)(x)
+    else:
+        x = keras.layers.Activation(activation)(x)
     return x
 
 def build_resnet(x):
@@ -28,6 +32,7 @@ def build_resnet(x):
 
 def build_deconv(x, nf, size, stride=2):
     x = keras.layers.Conv2DTranspose(nf, size, strides=(stride, stride), padding='same')(x)
+    x = keras.layers.Activation('relu')(x)
     return x
 
 def build_generator():
@@ -42,17 +47,17 @@ def build_generator():
 
     x = build_deconv(x, 128, 3)
     x = build_deconv(x, 64, 3)
-    outputs = x = build_conv(x, 3, 7)
+    outputs = x = build_conv(x, 3, 7, activation='tanh')
 
     return keras.models.Model(inputs=inputs, outputs=outputs)
 
 def build_discriminator():
     inputs = x = build_input()
 
-    x = build_conv(x, 64, 4, 2)
-    x = build_conv(x, 128, 4, 2)
-    x = build_conv(x, 256, 4, 2)
-    outputs = x = build_conv(x, 1, 4, 2)
+    x = build_conv(x, 64, 4, 2, activation='leakyrelu')
+    x = build_conv(x, 128, 4, 2, activation='leakyrelu')
+    x = build_conv(x, 256, 4, 2, activation='leakyrelu')
+    outputs = x = build_conv(x, 1, 4, 2, activation='sigmoid')
 
     return keras.models.Model(inputs=inputs, outputs=outputs)
 
@@ -82,6 +87,10 @@ def disc_loss(inputs):
     loss = 0.5 * (true_loss + false_loss)
     return loss
 
+def avg_loss(losses):
+    L = sum(losses) / len(losses)
+    return round(L, 3)
+
 
 class Trainer:
     def __init__(self, cycle_gan, batch_size=4):
@@ -93,6 +102,7 @@ class Trainer:
         self.target = np.zeros((batch_size, 1))
         self.epoch = 0
         self.preprocessed = False
+        self.version = 1
 
     def train_one_batch(self):
         if not self.preprocessed:
@@ -111,18 +121,34 @@ class Trainer:
                                 [self.cycle_gan.net_A2B_gen.outputs[0]])([B,1])[0]
         fake_b = self.fake_B_pool.replace(tmp_fake_B)
         fake_a = self.fake_A_pool.replace(tmp_fake_A)
-        self.cycle_gan.train_gen.train_on_batch([A, B], self.target)
-        self.cycle_gan.train_disc_A.train_on_batch([A, fake_a], self.target)
-        self.cycle_gan.train_disc_B.train_on_batch([B, fake_b], self.target)
+        gen_loss = self.cycle_gan.train_gen.train_on_batch([A, B], self.target)
+        discA_loss = self.cycle_gan.train_disc_A.train_on_batch([A, fake_a], self.target)
+        discB_loss = self.cycle_gan.train_disc_B.train_on_batch([B, fake_b], self.target)
 
-        return epoch
+        return (epoch, gen_loss, discA_loss, discB_loss)
 
-    def train_one_epoch(self):
+    def train_one_epoch(self, every_nth=50):
         print("Training epoch", self.epoch)
         start = time.time()
+        gen_loss = []
+        discA_loss = []
+        discB_loss = []
         epoch = self.epoch
+        n = 0
+        nth = 0
         while epoch == self.epoch:
-            epoch = self.train_one_batch()
+            epoch, loss1, loss2, loss3 = self.train_one_batch()
+            gen_loss.append(loss1)
+            discA_loss.append(loss2)
+            discB_loss.append(loss3)
+            gen_loss = gen_loss[-5:]
+            discA_loss = discA_loss[-5:]
+            discB_loss = discB_loss[-5:]
+            n += self.batch_size
+            if n > 0 and n > nth * every_nth:
+                nth += 1
+                print("n:", n, ", genLoss:", avg_loss(gen_loss), ", discA:",
+                      avg_loss(discA_loss), ", discB:", avg_loss(discB_loss))
         self.epoch = epoch
         print("Done. Took", round(time.time() - start, 1), "seconds.")
 
@@ -187,22 +213,20 @@ class CycleGAN:
         self.train_disc_B.compile(adam_opt, 'mae')
 
     def to_spectrum(self, img):
-        conv = False
+        tmp = img
         if len(img.shape) == 3:
-            conv = True
-            img = np.array([img])
-        scr_img = self.net_A2B_gen.predict(img)
-        if conv:
+            tmp = np.array([img])
+        scr_img = self.net_A2B_gen.predict(tmp)
+        if len(img.shape) == 3:
             scr_img = scr_img[0]
         return scr_img
 
     def to_rgb(self, img):
-        conv = False
+        tmp = img
         if len(img.shape) == 3:
-            conv = True
-            img = np.array([img])
-        rgb_img = self.net_B2A_gen.predict(img)
-        if conv:
+            tmp = np.array([img])
+        rgb_img = self.net_B2A_gen.predict(tmp)
+        if len(img.shape) == 3:
             rgb_img = rgb_img[0]
         return rgb_img
 
@@ -215,6 +239,7 @@ class CycleGAN:
         self.train_gen.save   ('models/model_train_gen-{}.h5'.format(version))
         self.train_disc_A.save('models/model_train_disc_A-{}.h5'.format(version))
         self.train_disc_B.save('models/model_train_disc_B-{}.h5'.format(version))
+        print("Saved version {}.".format(version))
 
     def load(self, version):
         self.net_A2B_gen      = keras.models.load_model('models/model_A2B_gen-{}.h5'.format(version))
