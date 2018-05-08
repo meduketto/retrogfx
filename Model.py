@@ -242,10 +242,10 @@ class CycleGAN:
         print("Saved version {}.".format(version))
 
     def load(self, version):
-        self.net_A2B_gen      = keras.models.load_model('models/model_A2B_gen-{}.h5'.format(version))
-        self.net_B2A_gen      = keras.models.load_model('models/model_B2A_gen-{}.h5'.format(version))
-        self.net_A_disc       = keras.models.load_model('models/model_A_disc-{}.h5'.format(version))
-        self.net_B_disc       = keras.models.load_model('models/model_B_disc-{}.h5'.format(version))
-        self.net_train_gen    = keras.models.load_model('models/model_train_gen-{}.h5'.format(version))
-        self.net_train_disc_A = keras.models.load_model('models/model_train_disc_A-{}.h5'.format(version))
-        self.net_train_disc_B = keras.models.load_model('models/model_train_disc_B-{}.h5'.format(version))
+        self.net_A2B_gen.load_weights ('models/model_A2B_gen-{}.h5'.format(version))
+        self.net_B2A_gen.load_weights ('models/model_B2A_gen-{}.h5'.format(version))
+        self.net_A_disc.load_weights  ('models/model_A_disc-{}.h5'.format(version))
+        self.net_B_disc.load_weights  ('models/model_B_disc-{}.h5'.format(version))
+        self.train_gen.load_weights   ('models/model_train_gen-{}.h5'.format(version))
+        self.train_disc_A.load_weights('models/model_train_disc_A-{}.h5'.format(version))
+        self.train_disc_B.load_weights('models/model_train_disc_B-{}.h5'.format(version))
