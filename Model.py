@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+import os
 import time
 
 import numpy as np
@@ -91,18 +92,23 @@ class Trainer:
         self.fake_B_pool = Dataset.ImagePool()
         self.target = np.zeros((batch_size, 1))
         self.epoch = 0
+        self.preprocessed = False
 
     def train_one_batch(self):
+        if not self.preprocessed:
+            print("Preprocessing training data...")
+            start = time.time()
         epoch, A, B = next(self.mb)
+        if not self.preprocessed:
+            print("Preprocessing done. Took", round(time.time() - start, 1), "seconds.")
+            self.preprocessed = True
 
         tmp_fake_A = K.function([self.cycle_gan.net_B2A_gen.inputs[0],
                                  K.learning_phase()],
-                                [self.cycle_gan.net_B2A_gen.outputs[0]])
-                                ([A,1])[0]
+                                [self.cycle_gan.net_B2A_gen.outputs[0]])([A,1])[0]
         tmp_fake_B = K.function([self.cycle_gan.net_A2B_gen.inputs[0],
                                  K.learning_phase()],
-                                [self.cycle_gan.net_A2B_gen.outputs[0]])
-                                ([B,1])[0]
+                                [self.cycle_gan.net_A2B_gen.outputs[0]])([B,1])[0]
         fake_b = self.fake_B_pool.replace(tmp_fake_B)
         fake_a = self.fake_A_pool.replace(tmp_fake_A)
         self.cycle_gan.train_gen.train_on_batch([A, B], self.target)
@@ -112,10 +118,13 @@ class Trainer:
         return epoch
 
     def train_one_epoch(self):
+        print("Training epoch", self.epoch)
+        start = time.time()
         epoch = self.epoch
         while epoch == self.epoch:
-            epoch = self.train_one_epoch()
+            epoch = self.train_one_batch()
         self.epoch = epoch
+        print("Done. Took", round(time.time() - start, 1), "seconds.")
 
 
 class CycleGAN:
@@ -178,17 +187,40 @@ class CycleGAN:
         self.train_disc_B.compile(adam_opt, 'mae')
 
     def to_spectrum(self, img):
+        conv = False
         if len(img.shape) == 3:
+            conv = True
             img = np.array([img])
         scr_img = self.net_A2B_gen.predict(img)
-        if len(img.shape) == 3:
+        if conv:
             scr_img = scr_img[0]
         return scr_img
 
     def to_rgb(self, img):
+        conv = False
         if len(img.shape) == 3:
+            conv = True
             img = np.array([img])
         rgb_img = self.net_B2A_gen.predict(img)
-        if len(img.shape) == 3:
+        if conv:
             rgb_img = rgb_img[0]
         return rgb_img
+
+    def save(self, version):
+        os.makedirs('models/', exist_ok=True)
+        self.net_A2B_gen.save ('models/model_A2B_gen-{}.h5'.format(version))
+        self.net_B2A_gen.save ('models/model_B2A_gen-{}.h5'.format(version))
+        self.net_A_disc.save  ('models/model_A_disc-{}.h5'.format(version))
+        self.net_B_disc.save  ('models/model_B_disc-{}.h5'.format(version))
+        self.train_gen.save   ('models/model_train_gen-{}.h5'.format(version))
+        self.train_disc_A.save('models/model_train_disc_A-{}.h5'.format(version))
+        self.train_disc_B.save('models/model_train_disc_B-{}.h5'.format(version))
+
+    def load(self, version):
+        self.net_A2B_gen      = keras.models.load_model('models/model_A2B_gen-{}.h5'.format(version))
+        self.net_B2A_gen      = keras.models.load_model('models/model_B2A_gen-{}.h5'.format(version))
+        self.net_A_disc       = keras.models.load_model('models/model_A_disc-{}.h5'.format(version))
+        self.net_B_disc       = keras.models.load_model('models/model_B_disc-{}.h5'.format(version))
+        self.net_train_gen    = keras.models.load_model('models/model_train_gen-{}.h5'.format(version))
+        self.net_train_disc_A = keras.models.load_model('models/model_train_disc_A-{}.h5'.format(version))
+        self.net_train_disc_B = keras.models.load_model('models/model_train_disc_B-{}.h5'.format(version))
