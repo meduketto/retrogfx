@@ -13,43 +13,36 @@ def read_rgb(path):
     img = cv2.resize(img, (256, 192), interpolation=cv2.INTER_AREA)
     img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     img = img.astype('float32')
-    img /= 255.
+    img = (img - 127.5) / 127.5
     return img
 
 def read_scr(path):
     data = open(path, 'rb').read()
-    return data
+    img = Spectrum.scr_to_image(data)
+    img = (img - 127.5) / 127.5
+    return img
 
+def to_image(nn):
+    return (nn * 127.5 + 127.5).astype('uint8')
 
-class Dataset:
-    def __init__(self, path='pairs/'):
-        self.path = path
-        indexes = self.get_indexes()
-        n = len(indexes)
-        n_test = min(5, n % 50)
-        self.train = self.read_data(indexes[:-n_test])
-        self.test = self.read_data(indexes[-n_test:])
+def batch(name_glob, read_func, batch_size):
+    data = np.array([read_func(name) for name in glob.glob(name_glob)])
+    assert batch_size < data.shape[0]
+    np.random.shuffle(data)
+    epoch = 0
+    pos = 0
+    while True:
+        if pos + batch_size >= data.shape[0]:
+            pos = 0
+            epoch += 1
+            np.random.shuffle(data)
+        yield epoch, data[pos:pos + batch_size]
+        pos += batch_size
 
-    def read_data(self, indexes):
-        print(indexes)
-        rgb = np.array([self.read_rgb(i) for i in indexes])
-        scr = [self.read_scr(i) for i in indexes]
-        bitmap = np.array([Spectrum.scr_to_bitmap(data) for data in scr])
-        attr = np.array([Spectrum.scr_to_attr(data) for data in scr])
-        return rgb, bitmap, attr
-
-    def read_rgb(self, i):
-        return read_rgb(os.path.join(self.path, str(i)))
-
-    def read_scr(self, i):
-        return read_scr(os.path.join(self.path, '{}.scr'.format(i)))
-
-    def get_indexes(self):
-        files = glob.glob(os.path.join(self.path, '*.scr'))
-        indexes = [int(x.rsplit('/', 1)[1].split('.')[0]) for x in files]
-        return sorted(indexes)
-
-
-if __name__ == "__main__":
-    d = Dataset()
-    print(d.test)
+def minibatch(batch_size, rgb_glob='image_rgb/*', scr_glob='image_scr/*.scr'):
+    rgb_data = batch(rgb_glob, read_rgb, batch_size)
+    scr_data = batch(scr_glob, read_scr, batch_size)
+    while True:
+        epoch1, A = next(rgb_data)
+        epoch2, B = next(scr_data)
+        yield max(epoch1, epoch2), A, B

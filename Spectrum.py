@@ -19,7 +19,7 @@ colors = ( (  0,   0,   0), (  0,   0,   0),
            (215, 215,   0), (255, 255,   0),
            (215, 215, 215), (255, 255, 255) )
 
-np_colors = np.divide(np.array(colors), 255.)
+np_colors = np.array(colors)
 
 def get_attr(data, x, y):
     attrpos = 6144 + (x // 8) + (y // 8) * 32
