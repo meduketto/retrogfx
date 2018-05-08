@@ -2,6 +2,7 @@
 
 import os
 import glob
+import random
 
 import cv2
 import numpy as np
@@ -46,3 +47,28 @@ def minibatch(batch_size, rgb_glob='image_rgb/*', scr_glob='image_scr/*.scr'):
         epoch1, A = next(rgb_data)
         epoch2, B = next(scr_data)
         yield max(epoch1, epoch2), A, B
+
+
+class ImagePool:
+    def __init__(self, size=200):
+        self.size = size
+        self.n = 0
+        self.images = []
+
+    def replace(self, images):
+        new_images = []
+        for image in images:
+            if self.n < self.size:
+                self.n += 1
+                self.images.append(image)
+                new_images.append(image)
+            else:
+                p = random.uniform(0, 1)
+                if p > 0.5:
+                    i = random.randint(0, self.size - 1)
+                    tmp = self.images[i]
+                    self.images[i] = image
+                    new_images.append(tmp)
+                else:
+                    new_images.append(image)
+        return np.stack(new_images, axis=0)
